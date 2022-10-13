@@ -1,5 +1,5 @@
 # VolumeRenderingMRI
 
-For this project dependencies refer to https://learnopengl.com/Getting-started/Creating-a-window
+C++ Visual Studio project
 
-and follow the linking proccess of GLFW and GLAD 
+For this project dependencies please follow the linking proccess of GLFW and GLAD present in https://learnopengl.com/Getting-started/Creating-a-window, as these libraries are dynamically linked libraries.
