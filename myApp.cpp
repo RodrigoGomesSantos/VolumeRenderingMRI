@@ -23,7 +23,7 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow* window);
 
 float nearestNeighbor(NiftiFile* nf, glm::vec3 p, int max);
-void volumeViewer(float* pixels, float* voxels, NiftiFile* nf);
+void volumePrepareForPipeline(float* pixels, float* voxels, NiftiFile* nf);
 
 // settings
 const unsigned int SCR_WIDTH = 900;
@@ -54,7 +54,7 @@ const char* fragmentShaderSource = "#version 330 core\n"
 "   FragColor = ourColor;\n"
 "}\n\0";
 
-//program variables
+//program global variables
 glm::vec3 cameraPos = glm::vec3(0.0f, 0.5f, 3.0f);
 glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
 
