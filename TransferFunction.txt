@@ -1,0 +1,5 @@
+# NOT USED YET
+# lines with "#" are ignored
+# lines starting with c generate a color of format (rgba) followd by its lower and upper ranges
+
+0.1	0.1	0.1	0.1	0.0	1.0
