@@ -216,13 +216,13 @@ int main()
 	// VAOs requires a call to glBindVertexArray anyways so we generally don't unbind VAOs (nor VBOs) when it's not directly necessary.
 	glBindVertexArray(0);
 
-	//HERE
+	////enable this to generate OCTREE
+	/*
 	int time_start = glfwGetTime();
-
-	Octree octree(&nf); //generates an octree for the nifti file
-
+	//Octree octree(&nf); //generates an octree for the nifti file 
 	int duration = glfwGetTime() - time_start;
 	std::cout << "octree creation duration: " << duration << std::endl;
+	*/
 
 	// render loop
 	// -----------
