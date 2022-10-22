@@ -24,6 +24,7 @@ public:
 	
 	Octree(NiftiFile* nf);
 	~Octree();
+	float searchPointGetIntensity(glm::vec3 point);
 };
 
 

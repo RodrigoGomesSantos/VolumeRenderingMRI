@@ -50,10 +50,30 @@
     <ClInclude Include="Node.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Shader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Text Include="TransferFunction.txt">
       <Filter>Resource Files</Filter>
     </Text>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="3.3.shader.vs">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="3.3.shader.fs">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="3.3.corner_shader.fs">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="3.3.corner_shader.vs">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="3.3.zbuffershader.fs">
+      <Filter>Resource Files</Filter>
+    </None>
   </ItemGroup>
 </Project>

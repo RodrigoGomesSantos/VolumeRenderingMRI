@@ -18,6 +18,5 @@ public:
 	int transformVector3Position(glm::vec3 v);
 	void displayNIFTI2Header();
 	int loadFileToMem();
-	void iterate();
 
 };

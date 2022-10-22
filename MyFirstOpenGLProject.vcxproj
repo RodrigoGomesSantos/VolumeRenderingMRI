@@ -31,10 +31,18 @@
     <ClInclude Include="nifti2.h" />
     <ClInclude Include="Node.h" />
     <ClInclude Include="Octree.h" />
+    <ClInclude Include="Shader.h" />
     <ClInclude Include="TransferFunction.h" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="TransferFunction.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="3.3.corner_shader.fs" />
+    <None Include="3.3.corner_shader.vs" />
+    <None Include="3.3.shader.fs" />
+    <None Include="3.3.shader.vs" />
+    <None Include="3.3.zbuffershader.fs" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>

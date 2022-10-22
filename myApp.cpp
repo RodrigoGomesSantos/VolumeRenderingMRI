@@ -13,6 +13,8 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 
+#include "Shader.h"
+
 //Load nifti2 file
 #include "BinaryLoader.h"
 #include "Node.h"
@@ -23,45 +25,26 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow* window);
 
 float nearestNeighbor(NiftiFile* nf, glm::vec3 p, int max);
-void volumePrepareForPipeline(float* pixels, float* voxels, NiftiFile* nf);
+void volumePrepareForPipeline(float* voxels, float* volume_dimensions, NiftiFile* nf);
+glm::vec4 sphereTest(float* volume_dimensions, int x, int y, int z);
+glm::vec4 niftiColorTest(NiftiFile* nf, int x, int y, int z);
 
 // settings
-const unsigned int SCR_WIDTH = 900;
-const unsigned int SCR_HEIGHT = 900;
-const glm::vec3 BACKGROUND_COLOUR = glm::vec3(0.2f, 0.3f, 0.3f);
+const unsigned int SCR_WIDTH = 800;
+const unsigned int SCR_HEIGHT = 600;
+const glm::vec4 BACKGROUND_COLOUR = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
 
-const char* vertexShaderSource = "#version 330 core\n"
-"layout (location = 0) in vec3 aPos;\n"
-"layout (location = 1) in vec4 aColor;\n"
-"\n"
-"out vec4 ourColor;\n"
-"\n"
-"uniform mat4 model;\n"
-"uniform mat4 view;\n"
-"uniform mat4 projection;\n"
-
-"void main()\n"
-"{\n"
-"   gl_Position = projection * view * model * vec4(aPos, 1.0);\n"
-"   ourColor = aColor;\n"
-"}\0";
-
-const char* fragmentShaderSource = "#version 330 core\n"
-"out vec4 FragColor;\n"
-"in vec4 ourColor;\n"
-"void main()\n"
-"{\n"
-"   FragColor = ourColor;\n"
-"}\n\0";
-
-//program global variables
-glm::vec3 cameraPos = glm::vec3(0.0f, 0.5f, 3.0f);
+//camera global variables
+glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 3.0f);
 glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
 
 glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
-glm::vec3 cameraRight = glm::normalize(glm::cross(up, cameraFront));
-glm::vec3 cameraUp = glm::cross(cameraFront, cameraRight);
+//glm::vec3 cameraRight = glm::normalize(glm::cross(up, cameraFront));
+glm::vec3 cameraRight = glm::normalize(glm::cross(cameraFront, up));
+//glm::vec3 cameraUp = glm::cross(cameraFront, cameraRight);
+glm::vec3 cameraUp = up;
 
+//time variables
 float deltaTime = 0.0f;	// Time between current frame and last frame
 float lastFrame = 0.0f; // Time of last frame
 
@@ -81,7 +64,7 @@ int main()
 
 	// glfw window creation
 	// --------------------
-	GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "LearnOpenGL", NULL, NULL);
+	GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Nifti 2 Volume Viewer", NULL, NULL);
 	if (window == NULL)
 	{
 		std::cout << "Failed to create GLFW window" << std::endl;
@@ -100,87 +83,66 @@ int main()
 	}
 
 	// Enable blending
-	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glEnable(GL_BLEND);
 
 	glEnable(GL_DEPTH_TEST);
+
+	
 
 	//matrices
 	glm::mat4 model = glm::mat4(1.0f);
 	model = glm::translate(model, glm::vec3(-0.5f, -0.5f, -0.5f));
-
+	//model = glm::translate(model, glm::vec3(0.0f, 0.0f, 2.0f));
+	
 	glm::mat4 view;
-	view = glm::lookAt(glm::vec3(0.0f, 0.0f, 3.0f),
+	view = glm::lookAt(cameraPos,
 		glm::vec3(0.0f, 0.0f, 0.0f),
 		glm::vec3(0.0f, 1.0f, 0.0f));
 
 	glm::mat4 projection;
-	projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
-
+	//projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
+	projection = glm::perspective(glm::radians(45.0f), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 10.0f);
 
 
 	// build and compile our shader program
 	// ------------------------------------
-	// vertex shader
-	unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
-	glShaderSource(vertexShader, 1, &vertexShaderSource, NULL);
-	glCompileShader(vertexShader);
-	// check for shader compile errors
-	int success;
-	char infoLog[512];
-	glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
-	if (!success)
-	{
-		glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-		std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
-	}
-	// fragment shader
-	unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-	glShaderSource(fragmentShader, 1, &fragmentShaderSource, NULL);
-	glCompileShader(fragmentShader);
-	// check for shader compile errors
-	glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
-	if (!success)
-	{
-		glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-		std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
-	}
-	// link shaders
-	unsigned int shaderProgram = glCreateProgram();
-	glAttachShader(shaderProgram, vertexShader);
-	glAttachShader(shaderProgram, fragmentShader);
-	glLinkProgram(shaderProgram);
-	// check for linking errors
-	glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
-	if (!success) {
-		glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
-		std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
-	}
-	glDeleteShader(vertexShader);
-	glDeleteShader(fragmentShader);
+	Shader ourShader("3.3.shader.vs", "3.3.shader.fs"); // you can name your shader files however you like
+
 
 	// set up vertex data (and buffer(s)) and configure vertex attributes
 	// ------------------------------------------------------------------
 
-
 	/*
 	float screen_corners[] =
-		{
-		// positions         // colors
-		 1.0f, -1.0f, 0.0f,  1.0f, 0.0f, 0.0f,   // bottom right
-		-1.0f, -1.0f, 0.0f,  0.0f, 1.0f, 0.0f,   // bottom left
-		 1.0f,  1.0f, 0.0f,  0.0f, 0.0f, 1.0f    // top right
-		-1.0f,  1.0f, 0.0f,  0.0f, 0.0f, 0.0f    // top left
-	}
+	{
+		//positions			//colors
+		1.0f,	1.0f,	0.0f,	0.0f,	0.0f,	1.0f,    // top right 
+		1.0f,	-1.0f,	0.0f,	0.0f,	0.0f,	1.0f,   // bottom right
+		-1.0f,	-1.0f,	0.0f,	0.0f,	1.0f,	0.0f,   // bottom left
+		-1.0f,	1.0f,	0.0f,	0.0f,	1.0f,	0.0f    // top left
+	};
+
+	unsigned int indices[] = {  // note that we start from 0!
+	0, 1, 3,   // first triangle
+	1, 2, 3    // second triangle
+	};
 	*/
+
+	//store the resulting colors
+	//float* all_screen = (float*)malloc(SCR_WIDTH * SCR_HEIGHT * sizeof(float));
+
 
 	//File Loading 
 	NiftiFile nf = NiftiFile("avg152T1_LR_nifti2.nii");
-	float* pixels = (float*)malloc(sizeof(float) * SCR_WIDTH * SCR_HEIGHT * 6); //currently not used for anything
-	float* voxels = (float*)malloc(sizeof(float) * nf.header.dim[1] * nf.header.dim[2] * nf.header.dim[3] * 7);
+	//float* pixels = (float*)malloc(sizeof(float) * SCR_WIDTH * SCR_HEIGHT * 6); //currently not used for anything
+	
+	float volume_dimensions[3] = { nf.header.dim[1], nf.header.dim[2], nf.header.dim[3] };
+	float volume_dimensions_total_size = volume_dimensions[0] * volume_dimensions[1] * volume_dimensions[2];
+	float* voxels = (float*)malloc(sizeof(float) * volume_dimensions_total_size * 7);
 
 
-	volumePrepareForPipeline(pixels, voxels, &nf);
+	volumePrepareForPipeline(voxels, volume_dimensions, &nf);
 
 	unsigned int VBO, VAO;// EBO;
 	glGenVertexArrays(1, &VAO);
@@ -192,9 +154,9 @@ int main()
 
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
 	//glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
+	//glBufferData(GL_ARRAY_BUFFER, sizeof(screen_corners), screen_corners, GL_STATIC_DRAW);
 	//glBufferData(GL_ARRAY_BUFFER, 6*sizeof(float) * SCR_WIDTH * SCR_WIDTH, pixels, GL_STATIC_DRAW);
-	glBufferData(GL_ARRAY_BUFFER, 7 * sizeof(float) * nf.header.dim[1] * nf.header.dim[2] * nf.header.dim[3], voxels, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, 7 * sizeof(float) * volume_dimensions_total_size, voxels, GL_STATIC_DRAW);
 
 	/*
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
@@ -203,9 +165,12 @@ int main()
 
 	// position attribute
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 7 * sizeof(float), (void*)0);
+	//glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(0);
+
 	// color attribute
 	glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 7 * sizeof(float), (void*)(3 * sizeof(float)));
+	//glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
 	glEnableVertexAttribArray(1);
 
 
@@ -219,7 +184,7 @@ int main()
 	////enable this to generate OCTREE
 	/*
 	int time_start = glfwGetTime();
-	//Octree octree(&nf); //generates an octree for the nifti file 
+	Octree octree(&nf); //generates an octree for the nifti file
 	int duration = glfwGetTime() - time_start;
 	std::cout << "octree creation duration: " << duration << std::endl;
 	*/
@@ -239,50 +204,55 @@ int main()
 
 		// render
 		// ------
+		//clear last frame and zbuffer
+		glClearColor(BACKGROUND_COLOUR.r, BACKGROUND_COLOUR.g, BACKGROUND_COLOUR.b, BACKGROUND_COLOUR.a);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		glClearColor(BACKGROUND_COLOUR.r, BACKGROUND_COLOUR.g, BACKGROUND_COLOUR.b, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT);
+		
 
 		view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
 
 		// send the matrices to the shader (this is usually done each frame since transformation matrices tend to change a lot)
-		int modelLoc = glGetUniformLocation(shaderProgram, "model");
+		int modelLoc = glGetUniformLocation(ourShader.ID, "model");
 		glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
-		int viewLoc = glGetUniformLocation(shaderProgram, "view");
+		int viewLoc = glGetUniformLocation(ourShader.ID, "view");
 		glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
 
-		int projectionLoc = glGetUniformLocation(shaderProgram, "projection");
+		int projectionLoc = glGetUniformLocation(ourShader.ID, "projection");
 		glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
+
 
 		//animation
 		//model = glm::rotate(model, glm::radians(0.1f), glm::vec3(0.0f, 1.0f, 0.0f));
 
 		//activate the shader
-		glUseProgram(shaderProgram);
+		ourShader.use();
 
 		// render the Volume
+
 		glBindVertexArray(VAO);
-		glDrawArrays(GL_POINTS, 0, SCR_WIDTH * SCR_HEIGHT);
-		//glBindVertexArray(0); //no need to unbind everytime
+		glDrawArrays(GL_POINTS, 0, volume_dimensions_total_size);
+		//glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0); //to draw from EBO
+		glBindVertexArray(0); //no need to unbind everytime
 
 
-		// glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
+
+		// glfw: swap buffers look
+		//  poll IO events (keys pressed/released, mouse moved etc.)
 		// -------------------------------------------------------------------------------
 		glfwSwapBuffers(window);
 		glfwPollEvents();
 	}
 
-
-
 	// optional: de-allocate all resources once they've outlived their purpose:
 	// ------------------------------------------------------------------------
 	glDeleteVertexArrays(1, &VAO);
 	glDeleteBuffers(1, &VBO);
-	glDeleteProgram(shaderProgram);
+	//glDeleteProgram(shaderProgram);
 
-	free(pixels);//free screen pixels
+	//free(pixels);//free screen pixels
 	free(voxels);
+	//free(all_screen);
 	// glfw: terminate, clearing all previously allocated GLFW resources.
 	// ------------------------------------------------------------------
 	glfwTerminate();
@@ -293,28 +263,31 @@ int main()
 // ---------------------------------------------------------------------------------------------------------
 void processInput(GLFWwindow* window)
 {
-	float cameraSpeed = 2.5f * deltaTime;
-
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
 		glfwSetWindowShouldClose(window, true);
 
-	cameraFront = glm::normalize(glm::vec3(0.0f, 0.0f, 0.0f) - cameraPos);
+	float cameraSpeed = M_PI * 50.0f * deltaTime;
+	glm::mat4 rotationMat = glm::mat4(1.0f);
+	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+
+		rotationMat = glm::rotate(rotationMat, glm::radians(cameraSpeed), cameraRight);
+	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+		rotationMat = glm::rotate(rotationMat, glm::radians(cameraSpeed), -cameraRight);
+		
+	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+		rotationMat = glm::rotate(rotationMat, glm::radians(cameraSpeed), cameraUp);
+		
+	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+		rotationMat = glm::rotate(rotationMat, glm::radians(cameraSpeed), -cameraUp);
+		
+
+	cameraPos = glm::vec4(cameraPos, 1.0f)  * rotationMat;
+
+	cameraFront = glm::normalize(glm::vec3(0.0f, 0.0f, 0.0f) - cameraPos); //keep looking at the center of the world
 	cameraRight = glm::normalize(glm::cross(cameraUp, cameraFront));
 	cameraUp = glm::cross(cameraFront, cameraRight);
 
-
-	if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-		cameraPos += cameraSpeed * cameraUp;
-	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-		cameraPos -= cameraSpeed * cameraUp;
-	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-		cameraPos -= glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
-	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-		cameraPos += glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
-
 }
-
-
 
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes
@@ -327,47 +300,88 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 }
 
 
-/**
-* 
-*/
-void volumePrepareForPipeline(float* pixels, float* voxels, NiftiFile* nf)
+void volumePrepareForPipeline(float* voxels, float* volume_dimensions, NiftiFile* nf)
 {
 	//define the voxel color and position
-	for (int i = 0; i < nf->header.dim[1]; i++) {
-		for (int j = 0; j < nf->header.dim[2]; j++) {
-			for (int k = 0; k < nf->header.dim[3]; k++) {
-				int aux = (i * nf->header.dim[2] * nf->header.dim[3] + j * nf->header.dim[3] + k) * 7;
+	for (int x = 0; x < volume_dimensions[0]; x++) {
+		for (int y = 0; y < volume_dimensions[1]; y++) {
+			for (int z = 0; z < volume_dimensions[2]; z++) {
+				int index = (x * volume_dimensions[1] * volume_dimensions[2] + y * volume_dimensions[2] + z) * 7;
 
-				/*x*/voxels[aux + 0] = ((float)i) / nf->header.dim[1];
-				/*y*/voxels[aux + 1] = ((float)j) / nf->header.dim[2];
-				/*z*/voxels[aux + 2] = ((float)k) / nf->header.dim[3];
-
-				float intensity = nf->volume[nf->transformVector3Position(glm::vec3(i, j, k))] / nf->header.cal_max;
+				/*x*/voxels[index + 0] = ((float)x) / volume_dimensions[0];
+				/*y*/voxels[index + 1] = ((float)y) / volume_dimensions[1];
+				/*z*/voxels[index + 2] = ((float)z) / volume_dimensions[2];
 
 				glm::vec4 color = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
-
-				if (intensity >= 0.09f)
-					color = glm::vec4(0.1f, 0.1f, 0.1f, 1.0f);
-				if (intensity >= 0.3 && intensity < 0.4)
-					color = glm::vec4(0.0f, 0.0f, 0.8f, 1.0f);
-				if (intensity >= 0.4 && intensity < 0.5)
-					color = glm::vec4(0.8f, 0.8f, 0.4f, 1.0f);
-				if (intensity >= 0.5 && intensity < 0.6)
-					color = glm::vec4(0.1f, 0.5f, 0.5f, 1.0f);
-				if (intensity >= 0.6 && intensity < 0.7)
-					color = glm::vec4(0.5f, 0.5f, 0.5f, 1.0f);
-				if (intensity >= 0.7 && intensity < 0.1)
-					color = glm::vec4(0.9f, 0.5f, 0.5f, 1.0f);
-
-				//atributes the average value of the (x,y) cordinate
-				/*r*/voxels[aux + 3] = color[0];//sum / max_depth; //nf.volume[nf.transformVector3Position(glm::vec3(i,100,j))]/255.0f;
-				/*g*/voxels[aux + 4] = color[1];
-				/*b*/voxels[aux + 5] = color[2];
-				/*alpha*/voxels[aux + 6] = color[3];
+				//color = sphereTest(volume_dimensions, x, y, z);
+				color = niftiColorTest(nf, x, y, z);
+				
+				/*r*/voxels[index + 3] = color.r;
+				/*g*/voxels[index + 4] = color.g;
+				/*b*/voxels[index + 5] = color.b;
+				/*a*/voxels[index + 6] = color.a;
 			}
 		}
 	}
 }
+
+glm::vec4 niftiColorTest( NiftiFile* nf,int x,int y,int z) {
+	glm::vec4 color = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+	float intensity = nf->volume[nf->transformVector3Position(glm::vec3(x, y, z))] / nf->header.cal_max;
+	
+	if (intensity >= 0.1f && intensity < 0.3f)
+		color = glm::vec4(0.1f, 0.1f, 0.1f, 1.0f);
+	if (intensity >= 0.3f && intensity < 0.4f)
+		color = glm::vec4(0.0f, 0.0f, 0.8f, 1.0f);
+	if (intensity >= 0.4f && intensity < 0.5f)
+		color = glm::vec4(0.8f, 0.8f, 0.4f, 1.0f);
+	if (intensity >= 0.5f && intensity < 0.6f)
+		color = glm::vec4(0.1f, 0.5f, 0.5f, 1.0f);
+	if (intensity >= 0.6f && intensity < 0.7f)
+		color = glm::vec4(0.5f, 0.5f, 0.5f, 1.0f);
+	if (intensity >= 0.7f && intensity <= 1.0f)
+		color = glm::vec4(0.9f, 0.5f, 0.5f, 1.0f);
+	return color;
+}
+
+
+glm::vec4 sphereTest(float* volume_dimensions ,int x, int y, int z) {
+	glm::vec4 color = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+	glm::vec3 center = glm::vec3(volume_dimensions[0] / 2, volume_dimensions[1] / 2, volume_dimensions[2] / 2);
+	float radius = volume_dimensions[0] / 2;
+	float sphere_test = pow(x - center.x, 2) + pow(y - center.y, 2) + pow(z - center.z, 2);
+	if (sphere_test <= pow(radius, 2)) {
+
+		if (x > volume_dimensions[0] / 2)
+			if (y > volume_dimensions[1] / 2)
+				if (z > volume_dimensions[2] / 2)
+					color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+				else
+					color = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
+			else
+				if (z > volume_dimensions[2] / 2)
+					color = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f);
+				else
+					color = glm::vec4(1.0f, 1.0f, 0.0f, 1.0f);
+		else
+			if (y > volume_dimensions[1] / 2)
+				if (z > volume_dimensions[2] / 2)
+					color = glm::vec4(1.0f, 0.0f, 1.0f, 1.0f);
+				else
+					color = glm::vec4(0.0f, 1.0f, 1.0f, 1.0f);
+			else
+				if (z > volume_dimensions[2] / 2)
+					color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+				else
+					color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+	}
+
+	if (z == 0 || z == volume_dimensions[2] - 1)
+		color = glm::vec4(1.0f - BACKGROUND_COLOUR.r, 1.0f - BACKGROUND_COLOUR.g, 1.0f - BACKGROUND_COLOUR.b, 1.0f);
+
+	return color;
+}
+
 
 //returns a float normalized between 0.0f and 1.0f representing intensity
 //TODO - fix this for ray direction and not dataset direction
@@ -381,6 +395,72 @@ float nearestNeighbor(NiftiFile* nf, glm::vec3 p, int max) {
 }
 
 
+void think(NiftiFile* nf) {
 
+	glm::vec3 screen_pixel_ray_dir[SCR_WIDTH][SCR_HEIGHT];
+	
+	Octree o = Octree(nf);
 
+	//i only know 4 sure cordinates
+	//top left
+	//bottom left
+	//top right
+	//bottom rigt
 
+	float viewplane_distance = 5.0f;
+	float view_angle = M_PI / 2;
+
+	glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, -2.0f);
+	glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
+	glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, 1.0f);
+	glm::vec3 cameraRight = glm::normalize(glm::cross(up, cameraFront));
+
+	//this points to the top left corner of the screen
+	float real_screen_width = 2 * std::tan(view_angle) * viewplane_distance;
+	float real_screen_height = real_screen_width * SCR_HEIGHT / SCR_WIDTH;
+
+	glm::vec3 top_left_corner = cameraPos + (viewplane_distance * cameraFront) +
+		(real_screen_width / 2) * (-cameraRight)
+		+ (up * (real_screen_height / 2));
+
+	for (int x = 0; x < SCR_WIDTH; x++) {
+		for (int y = 0; y < SCR_HEIGHT; y++) {
+			screen_pixel_ray_dir[x][y] = normalize(top_left_corner +
+				(x * real_screen_width / SCR_WIDTH) * (cameraRight)+
+				(y * real_screen_height / SCR_HEIGHT) * (-up)
+				- cameraPos);
+		}
+	}
+
+	glm::vec3 screen_pixel_color[SCR_WIDTH][SCR_HEIGHT];
+	
+
+	float sample_distance = 0.1f; //sample distance
+	int samples_per_ray = 30;
+
+	for (int x = 0; x < SCR_WIDTH; x++) {
+		for (int y = 0; y < SCR_HEIGHT; y++) {
+
+			//shoot a ray
+
+			//from cameraPosition to screen_pixel_ray_dir[x][y]
+
+			glm::vec3 fragmentColor = BACKGROUND_COLOUR;
+			
+			int i = 0;
+			bool found = false;
+			while (!found && i < samples_per_ray) {
+				cameraPos + i * sample_distance * screen_pixel_ray_dir[x][y]; //this is the position of the sample in world cordinates
+				
+				//change fragmentColor HERE
+				if (true) {
+					found = true;
+				}
+				i++;
+			}
+
+			screen_pixel_color[x][y] = fragmentColor;
+
+		}
+	}
+}

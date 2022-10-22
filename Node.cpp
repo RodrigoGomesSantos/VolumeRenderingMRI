@@ -110,6 +110,17 @@ bool Node::isInside(glm::vec3 p) {
 		p.z < upper.z);
 }
 
+float Node::searchPointGetIntensity(glm::vec3 point) {
+
+	float res = 0.0f;
+	if (isInside(point)) {
+		for (int i = 0; i < 8; i++) {
+			res = this->branches[0][i].searchPointGetIntensity(point);
+		}
+	}
+	return res;
+}
+
 Node::~Node() {
 	free(branches);
 }

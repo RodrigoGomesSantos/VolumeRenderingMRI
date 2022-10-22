@@ -29,6 +29,7 @@ public:
 	void NodeConstructorAuxiliar(int max_depth);
 	void updateNodesValue(int hdim, NiftiFile* nf);
 	bool isInside(glm::vec3 p);
+	float searchPointGetIntensity(glm::vec3 point);
 	~Node();
 
 };

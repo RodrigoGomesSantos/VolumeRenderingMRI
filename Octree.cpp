@@ -15,10 +15,21 @@ Octree::Octree(NiftiFile* nf) {
 	while (std::pow(2, max_depth) < hdim)
 		max_depth++;
 
-	std::cout<< "MAX_DEPTH: " << max_depth<< std::endl;
-
 	this->root = (Node*) malloc(sizeof(Node));
-	this->root[0] = Node(max_depth,hdim,nf);
+	this->root = new Node(max_depth,hdim,nf);
+}
+
+float Octree::searchPointGetIntensity(glm::vec3 point) {
+	
+	/*
+	if (root->isInside(point)) {
+	}
+		for (int i = 0; i < 8; i++) {
+			root->branches[0][i]->
+		}		
+	*/
+
+	return 0.0f; //TODO
 }
 
 Octree::~Octree() {

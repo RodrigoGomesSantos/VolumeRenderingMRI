@@ -139,16 +139,15 @@ int NiftiFile::loadFileToMem() {
         //start reading from byte offset, for nifti2 is ususally 544, https://brainder.org/2015/04/03/the-nifti-2-file-format/
         file.seekg (header.vox_offset, std::ios::beg); 
           
-        std::cout << "\nCONTENT START"<< std::endl;
+        //std::cout << "\nCONTENT START"<< std::endl;
        
-          
-        std::cout << "File good: " << file.good() << std::endl;
+        //std::cout << "File good: " << file.good() << std::endl;
 
         file.read((char*) volume, vsize * sizeof(float));
           
-        std::cout << "File end: " << file.eof() << std::endl;
+        //std::cout << "File end: " << file.eof() << std::endl;
           
-        std::cout << "\nCONTENT END" << std::endl;
+        //std::cout << "\nCONTENT END" << std::endl;
 
         //CLOSE FILE
         file.close();
@@ -156,14 +155,4 @@ int NiftiFile::loadFileToMem() {
     }
     else std::cout << "Unable to open file";
     return 0;
-}
-
-void NiftiFile::iterate() {
-    for (int i = 0; i < header.dim[1]; i++) {
-        for (int j = 0; j < header.dim[2]; j++) {
-            for (int k = 0; k < header.dim[3]; k++) {
-                volume[transformVector3Position(glm::vec3(i, j, k))];
-            }
-        }
-    }
 }
