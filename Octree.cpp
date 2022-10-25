@@ -16,20 +16,15 @@ Octree::Octree(NiftiFile* nf) {
 		max_depth++;
 
 	this->root = (Node*) malloc(sizeof(Node));
-	this->root = new Node(max_depth,hdim,nf);
+	this->root = new Node(max_depth,pow(2,max_depth), nf); //HERE changed hdim to 128
+	std::cout << "Octree Root High|Low Values: " << this->root->high_value << "|" << this->root->low_value << std::endl;
 }
 
-float Octree::searchPointGetIntensity(glm::vec3 point) {
-	
-	/*
-	if (root->isInside(point)) {
-	}
-		for (int i = 0; i < 8; i++) {
-			root->branches[0][i]->
-		}		
-	*/
 
-	return 0.0f; //TODO
+float Octree::searchPointGetIntensity(glm::vec3 point) {
+	float res = 0.0f;
+	res = root->searchPointGetIntensity(point);
+	return res;
 }
 
 Octree::~Octree() {

@@ -20,6 +20,44 @@
 #include "Node.h"
 #include "Octree.h"
 
+// settings
+const unsigned int SCR_WIDTH = 600;
+const unsigned int SCR_HEIGHT = 600;
+const glm::vec4 BACKGROUND_COLOUR = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+
+//camera global variables
+glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 1.0f);
+glm::vec3 cameraFront = glm::normalize(glm::vec3(0.0f, 0.0f, 0.0f) - cameraPos);
+
+glm::vec3 up = glm::vec3(-1.0f, 0.0f, 0.0f);
+glm::vec3 cameraRight = glm::normalize(glm::cross(cameraFront, up));
+glm::vec3 cameraUp = glm::normalize(glm::cross(cameraRight, cameraFront));
+
+//time variables
+float deltaTime = 0.0f;	// Time between current frame and last frame
+float lastFrame = 0.0f; // Time of last frame
+
+struct Data {
+	float viewplane_distance = 2.0f;
+	float view_angle = M_PI / 4;
+	
+	//this points to the top left corner of the screen
+	//float real_screen_width = 2 * std::tan(view_angle) * viewplane_distance;
+	float real_screen_width = 2 * std::tan(view_angle);
+	float real_screen_height = real_screen_width * SCR_HEIGHT / SCR_WIDTH;
+
+	/*glm::vec3 top_left_corner = cameraPos + (viewplane_distance * cameraFront) +
+		(real_screen_width / 2) * (-cameraRight)
+		+ (cameraUp * (real_screen_height / 2));
+	*/	
+	glm::vec3 top_left_corner = cameraPos +
+		(real_screen_width / 2) * (-cameraRight)
+		+ (cameraUp * (real_screen_height / 2));
+
+	int samples_per_ray = 100;
+	float sample_distance = viewplane_distance / samples_per_ray; //sample distance
+	
+};
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow* window);
@@ -28,25 +66,9 @@ float nearestNeighbor(NiftiFile* nf, glm::vec3 p, int max);
 void volumePrepareForPipeline(float* voxels, float* volume_dimensions, NiftiFile* nf);
 glm::vec4 sphereTest(float* volume_dimensions, int x, int y, int z);
 glm::vec4 niftiColorTest(NiftiFile* nf, int x, int y, int z);
-
-// settings
-const unsigned int SCR_WIDTH = 800;
-const unsigned int SCR_HEIGHT = 600;
-const glm::vec4 BACKGROUND_COLOUR = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-
-//camera global variables
-glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 3.0f);
-glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, -1.0f);
-
-glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
-//glm::vec3 cameraRight = glm::normalize(glm::cross(up, cameraFront));
-glm::vec3 cameraRight = glm::normalize(glm::cross(cameraFront, up));
-//glm::vec3 cameraUp = glm::cross(cameraFront, cameraRight);
-glm::vec3 cameraUp = up;
-
-//time variables
-float deltaTime = 0.0f;	// Time between current frame and last frame
-float lastFrame = 0.0f; // Time of last frame
+void prepScreenPixColoursForPipelineOld(NiftiFile* nf, Octree* octree, float* pixels, glm::vec3* screen_pixel_ray_dir, glm::vec4* screen_pixel_color, Data* data);
+void prepScreenPixColoursForPipeline(Octree* octree, float* pixels, glm::vec3* screen_pixel_ray_dir, glm::vec4* screen_pixel_color, Data* data);
+void update_colors(Octree* octree, float* pixels, glm::vec3* screen_pixel_ray_dir, glm::vec4* screen_pixel_color, Data* data, int layer);
 
 
 int main()
@@ -83,18 +105,18 @@ int main()
 	}
 
 	// Enable blending
+	/*
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glEnable(GL_BLEND);
 
 	glEnable(GL_DEPTH_TEST);
-
-	
+	*/
 
 	//matrices
 	glm::mat4 model = glm::mat4(1.0f);
 	model = glm::translate(model, glm::vec3(-0.5f, -0.5f, -0.5f));
 	//model = glm::translate(model, glm::vec3(0.0f, 0.0f, 2.0f));
-	
+
 	glm::mat4 view;
 	view = glm::lookAt(cameraPos,
 		glm::vec3(0.0f, 0.0f, 0.0f),
@@ -107,7 +129,7 @@ int main()
 
 	// build and compile our shader program
 	// ------------------------------------
-	Shader ourShader("3.3.shader.vs", "3.3.shader.fs"); // you can name your shader files however you like
+	Shader ourShader("3.3.corner_shader.vs", "3.3.corner_shader.fs"); // you can name your shader files however you like
 
 
 	// set up vertex data (and buffer(s)) and configure vertex attributes
@@ -117,7 +139,7 @@ int main()
 	float screen_corners[] =
 	{
 		//positions			//colors
-		1.0f,	1.0f,	0.0f,	0.0f,	0.0f,	1.0f,    // top right 
+		1.0f,	1.0f,	0.0f,	0.0f,	0.0f,	1.0f,    // top right
 		1.0f,	-1.0f,	0.0f,	0.0f,	0.0f,	1.0f,   // bottom right
 		-1.0f,	-1.0f,	0.0f,	0.0f,	1.0f,	0.0f,   // bottom left
 		-1.0f,	1.0f,	0.0f,	0.0f,	1.0f,	0.0f    // top left
@@ -135,14 +157,33 @@ int main()
 
 	//File Loading 
 	NiftiFile nf = NiftiFile("avg152T1_LR_nifti2.nii");
-	//float* pixels = (float*)malloc(sizeof(float) * SCR_WIDTH * SCR_HEIGHT * 6); //currently not used for anything
+	float* pixels = (float*)malloc(sizeof(float) * SCR_WIDTH * SCR_HEIGHT * 7);
+
+	//float volume_dimensions[3] = { nf.header.dim[1], nf.header.dim[2], nf.header.dim[3] };
+	//float volume_dimensions_total_size = volume_dimensions[0] * volume_dimensions[1] * volume_dimensions[2];
+	//float* voxels = (float*)malloc(sizeof(float) * volume_dimensions_total_size * 7);
+	//volumePrepareForPipeline(voxels, volume_dimensions, &nf);
+
+	////enable this to generate OCTREE
+
+	int time_start = glfwGetTime();
+	Octree octree = Octree(&nf); //generates an octree for the nifti file
+	int duration = glfwGetTime() - time_start;
+	std::cout << "octree creation duration: " << duration << std::endl;
+
+
+
+	std::cout << "preparing Pixel Colors fo Pipeline...";
+	glm::vec3* screen_pixel_ray_dir = (glm::vec3*)malloc(sizeof(glm::vec3) * SCR_WIDTH * SCR_HEIGHT);
+	glm::vec4* screen_pixel_color = (glm::vec4*)malloc(sizeof(glm::vec4) * SCR_WIDTH * SCR_HEIGHT);
+	Data d = Data();
+
+	time_start = glfwGetTime();
+	prepScreenPixColoursForPipeline(&octree, pixels, screen_pixel_ray_dir, screen_pixel_color, &d);
+	duration = glfwGetTime() - time_start;
+	std::cout << "pixel creation duration: " << duration << std::endl;
 	
-	float volume_dimensions[3] = { nf.header.dim[1], nf.header.dim[2], nf.header.dim[3] };
-	float volume_dimensions_total_size = volume_dimensions[0] * volume_dimensions[1] * volume_dimensions[2];
-	float* voxels = (float*)malloc(sizeof(float) * volume_dimensions_total_size * 7);
-
-
-	volumePrepareForPipeline(voxels, volume_dimensions, &nf);
+	std::cout << "DONE " << std::endl;
 
 	unsigned int VBO, VAO;// EBO;
 	glGenVertexArrays(1, &VAO);
@@ -155,8 +196,8 @@ int main()
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
 	//glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 	//glBufferData(GL_ARRAY_BUFFER, sizeof(screen_corners), screen_corners, GL_STATIC_DRAW);
-	//glBufferData(GL_ARRAY_BUFFER, 6*sizeof(float) * SCR_WIDTH * SCR_WIDTH, pixels, GL_STATIC_DRAW);
-	glBufferData(GL_ARRAY_BUFFER, 7 * sizeof(float) * volume_dimensions_total_size, voxels, GL_STATIC_DRAW);
+	//glBufferData(GL_ARRAY_BUFFER, 7 * sizeof(float) * volume_dimensions_total_size, voxels, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, 7 * sizeof(float) * SCR_WIDTH * SCR_WIDTH, pixels, GL_DYNAMIC_DRAW);
 
 	/*
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
@@ -181,16 +222,11 @@ int main()
 	// VAOs requires a call to glBindVertexArray anyways so we generally don't unbind VAOs (nor VBOs) when it's not directly necessary.
 	glBindVertexArray(0);
 
-	////enable this to generate OCTREE
-	/*
-	int time_start = glfwGetTime();
-	Octree octree(&nf); //generates an octree for the nifti file
-	int duration = glfwGetTime() - time_start;
-	std::cout << "octree creation duration: " << duration << std::endl;
-	*/
+	int layer = 0;
 
 	// render loop
 	// -----------
+	std::cout << "Rendering" << std::endl;
 	while (!glfwWindowShouldClose(window))
 	{
 		//update delta time
@@ -206,8 +242,9 @@ int main()
 		// ------
 		//clear last frame and zbuffer
 		glClearColor(BACKGROUND_COLOUR.r, BACKGROUND_COLOUR.g, BACKGROUND_COLOUR.b, BACKGROUND_COLOUR.a);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		
+		//glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glClear(GL_COLOR_BUFFER_BIT);
+
 
 		view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
 
@@ -225,17 +262,23 @@ int main()
 		//animation
 		//model = glm::rotate(model, glm::radians(0.1f), glm::vec3(0.0f, 1.0f, 0.0f));
 
+		//TESTING HERE
+
+		glBufferData
+
+		update_colors(&octree, pixels, screen_pixel_ray_dir, screen_pixel_color, &d, layer);
+		layer++;
+
 		//activate the shader
 		ourShader.use();
 
 		// render the Volume
 
 		glBindVertexArray(VAO);
-		glDrawArrays(GL_POINTS, 0, volume_dimensions_total_size);
+		//glDrawArrays(GL_POINTS, 0, volume_dimensions_total_size); //for volume
+		glDrawArrays(GL_POINTS, 0, SCR_WIDTH * SCR_HEIGHT); //for screen pixels
 		//glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0); //to draw from EBO
 		glBindVertexArray(0); //no need to unbind everytime
-
-
 
 		// glfw: swap buffers look
 		//  poll IO events (keys pressed/released, mouse moved etc.)
@@ -250,8 +293,10 @@ int main()
 	glDeleteBuffers(1, &VBO);
 	//glDeleteProgram(shaderProgram);
 
-	//free(pixels);//free screen pixels
-	free(voxels);
+	free(pixels);//free screen pixels
+	free(screen_pixel_color);
+	free(screen_pixel_ray_dir);
+	//free(voxels);
 	//free(all_screen);
 	// glfw: terminate, clearing all previously allocated GLFW resources.
 	// ------------------------------------------------------------------
@@ -273,15 +318,15 @@ void processInput(GLFWwindow* window)
 		rotationMat = glm::rotate(rotationMat, glm::radians(cameraSpeed), cameraRight);
 	if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
 		rotationMat = glm::rotate(rotationMat, glm::radians(cameraSpeed), -cameraRight);
-		
+
 	if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
 		rotationMat = glm::rotate(rotationMat, glm::radians(cameraSpeed), cameraUp);
-		
+
 	if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
 		rotationMat = glm::rotate(rotationMat, glm::radians(cameraSpeed), -cameraUp);
-		
 
-	cameraPos = glm::vec4(cameraPos, 1.0f)  * rotationMat;
+
+	cameraPos = glm::vec4(cameraPos, 1.0f) * rotationMat;
 
 	cameraFront = glm::normalize(glm::vec3(0.0f, 0.0f, 0.0f) - cameraPos); //keep looking at the center of the world
 	cameraRight = glm::normalize(glm::cross(cameraUp, cameraFront));
@@ -315,7 +360,7 @@ void volumePrepareForPipeline(float* voxels, float* volume_dimensions, NiftiFile
 				glm::vec4 color = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
 				//color = sphereTest(volume_dimensions, x, y, z);
 				color = niftiColorTest(nf, x, y, z);
-				
+
 				/*r*/voxels[index + 3] = color.r;
 				/*g*/voxels[index + 4] = color.g;
 				/*b*/voxels[index + 5] = color.b;
@@ -325,10 +370,10 @@ void volumePrepareForPipeline(float* voxels, float* volume_dimensions, NiftiFile
 	}
 }
 
-glm::vec4 niftiColorTest( NiftiFile* nf,int x,int y,int z) {
+glm::vec4 niftiColorTest(NiftiFile* nf, int x, int y, int z) {
 	glm::vec4 color = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
 	float intensity = nf->volume[nf->transformVector3Position(glm::vec3(x, y, z))] / nf->header.cal_max;
-	
+
 	if (intensity >= 0.1f && intensity < 0.3f)
 		color = glm::vec4(0.1f, 0.1f, 0.1f, 1.0f);
 	if (intensity >= 0.3f && intensity < 0.4f)
@@ -345,7 +390,7 @@ glm::vec4 niftiColorTest( NiftiFile* nf,int x,int y,int z) {
 }
 
 
-glm::vec4 sphereTest(float* volume_dimensions ,int x, int y, int z) {
+glm::vec4 sphereTest(float* volume_dimensions, int x, int y, int z) {
 	glm::vec4 color = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
 	glm::vec3 center = glm::vec3(volume_dimensions[0] / 2, volume_dimensions[1] / 2, volume_dimensions[2] / 2);
 	float radius = volume_dimensions[0] / 2;
@@ -395,72 +440,247 @@ float nearestNeighbor(NiftiFile* nf, glm::vec3 p, int max) {
 }
 
 
-void think(NiftiFile* nf) {
+void prepScreenPixColoursForPipelineOld(NiftiFile* nf, Octree* octree, float* pixels, glm::vec3* screen_pixel_ray_dir, glm::vec4* screen_pixel_color, Data* data) {
 
-	glm::vec3 screen_pixel_ray_dir[SCR_WIDTH][SCR_HEIGHT];
-	
-	Octree o = Octree(nf);
 
-	//i only know 4 sure cordinates
-	//top left
-	//bottom left
-	//top right
-	//bottom rigt
+	//matrices
+	glm::mat4 modelAux = glm::mat4(1.0f);
+	modelAux = glm::translate(modelAux, glm::vec3(0.5f, 0.5f, 0.5f));
+	//model = glm::translate(model, glm::vec3(0.0f, 0.0f, 2.0f));
 
-	float viewplane_distance = 5.0f;
-	float view_angle = M_PI / 2;
+	glm::mat4 viewAux;
+	viewAux = glm::lookAt(
+		glm::vec3(0.0f, 0.0f, 0.0f),
+		cameraPos,
+		glm::vec3(0.0f, 1.0f, 0.0f));
 
-	glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, -2.0f);
-	glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
-	glm::vec3 cameraFront = glm::vec3(0.0f, 0.0f, 1.0f);
-	glm::vec3 cameraRight = glm::normalize(glm::cross(up, cameraFront));
 
-	//this points to the top left corner of the screen
-	float real_screen_width = 2 * std::tan(view_angle) * viewplane_distance;
-	float real_screen_height = real_screen_width * SCR_HEIGHT / SCR_WIDTH;
-
-	glm::vec3 top_left_corner = cameraPos + (viewplane_distance * cameraFront) +
-		(real_screen_width / 2) * (-cameraRight)
-		+ (up * (real_screen_height / 2));
 
 	for (int x = 0; x < SCR_WIDTH; x++) {
 		for (int y = 0; y < SCR_HEIGHT; y++) {
-			screen_pixel_ray_dir[x][y] = normalize(top_left_corner +
-				(x * real_screen_width / SCR_WIDTH) * (cameraRight)+
-				(y * real_screen_height / SCR_HEIGHT) * (-up)
+			screen_pixel_ray_dir[x * SCR_HEIGHT + y] = normalize(data->top_left_corner +
+				(x * data->real_screen_width / SCR_WIDTH) * (cameraRight)+
+				(y * data->real_screen_height / SCR_HEIGHT) * (-up)
 				- cameraPos);
 		}
 	}
 
-	glm::vec3 screen_pixel_color[SCR_WIDTH][SCR_HEIGHT];
-	
+	glm::vec3 center = glm::vec3(0.0f, 0.0f, 0.0f);
+	float radius = 0.5f;
 
-	float sample_distance = 0.1f; //sample distance
-	int samples_per_ray = 30;
+
 
 	for (int x = 0; x < SCR_WIDTH; x++) {
 		for (int y = 0; y < SCR_HEIGHT; y++) {
+			//glm::vec4 fragmentColor = BACKGROUND_COLOUR;
+			glm::vec4 fragmentColor = glm::vec4(0.0f, 1.0f, 1.0f, 1.0f);
 
-			//shoot a ray
+			//float highest_intensity = 0.0f;
+			for (int i = 0; i < data->samples_per_ray; i++) {
+				glm::vec3 auxPos = cameraPos + i * data->sample_distance * screen_pixel_ray_dir[x * SCR_HEIGHT + y]; //this is the position of the sample in world cordinates
+				/*
+				float intensity = octree->searchPointGetIntensity(modelAux * viewAux * glm::vec4(auxPos, 1.0f));
+				if (intensity > highest_intensity)
+					highest_intensity = intensity;*/
 
-			//from cameraPosition to screen_pixel_ray_dir[x][y]
-
-			glm::vec3 fragmentColor = BACKGROUND_COLOUR;
-			
-			int i = 0;
-			bool found = false;
-			while (!found && i < samples_per_ray) {
-				cameraPos + i * sample_distance * screen_pixel_ray_dir[x][y]; //this is the position of the sample in world cordinates
-				
-				//change fragmentColor HERE
-				if (true) {
-					found = true;
+				float sphere_test = pow(auxPos.x - center.x, 2) + pow(auxPos.y - center.y, 2) + pow(auxPos.z - center.z, 2);
+				if (sphere_test <= pow(radius, 2)) {
+					fragmentColor = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
 				}
-				i++;
 			}
 
-			screen_pixel_color[x][y] = fragmentColor;
+			//if (highest_intensity > 250.0f)
+
+
+			screen_pixel_color[x * SCR_HEIGHT + y] = fragmentColor;
+		}
+	}
+
+	for (int x = 0; x < SCR_WIDTH; x++) {
+		for (int y = 0; y < SCR_HEIGHT; y++) {
+			int index = (x * SCR_HEIGHT + y) * 7;
+			/*x*/pixels[index + 0] = 2 * (((float)x) / SCR_WIDTH) - 1;
+			/*y*/pixels[index + 1] = 2 * (((float)y) / SCR_HEIGHT) - 1;
+			/*z*/pixels[index + 2] = 0.0f;
+			/*r*/pixels[index + 3] = screen_pixel_color[x * SCR_HEIGHT + y].r;
+			/*g*/pixels[index + 4] = screen_pixel_color[x * SCR_HEIGHT + y].g;
+			/*b*/pixels[index + 5] = screen_pixel_color[x * SCR_HEIGHT + y].b;
+			/*a*/pixels[index + 6] = screen_pixel_color[x * SCR_HEIGHT + y].a;
+		}
+	}
+
+
+}
+
+void prepScreenPixColoursForPipeline(Octree* octree, float* pixels, glm::vec3* screen_pixel_ray_dir, glm::vec4* screen_pixel_color, Data* data) {
+
+	//matrices
+	glm::mat4 modelAux = glm::mat4(1.0f);
+	modelAux = glm::translate(modelAux, glm::vec3(0.5f, 0.5f, 0.5f));
+
+	glm::mat4 viewAux;
+	viewAux = glm::lookAt(
+		glm::vec3(0.0f, 0.0f, 0.0f),
+		cameraPos,
+		cameraUp);
+
+	for (int x = 0; x < SCR_WIDTH; x++) {
+		for (int y = 0; y < SCR_HEIGHT; y++) {
+			screen_pixel_ray_dir[x * SCR_HEIGHT + y] = cameraFront;
+				/*
+				normalize(data->top_left_corner +
+				(x * data->real_screen_width / SCR_WIDTH) * (cameraRight) +
+				(y * data->real_screen_height / SCR_HEIGHT) * (-cameraUp)
+				- cameraPos);*/
+		}
+	}
+
+
+
+	for (int x = 0; x < SCR_WIDTH; x++) {
+		for (int y = 0; y < SCR_HEIGHT; y++) {
+			glm::vec4 fragmentColor = BACKGROUND_COLOUR;
+
+			/*
+			for (int i = 0; i < data->samples_per_ray; i++) {
+				//glm::vec3 auxPos = cameraPos + i * data->sample_distance * screen_pixel_ray_dir[x * SCR_HEIGHT + y]; //this is the position of the sample in world cordinates
+				glm::vec3 auxPos = data->top_left_corner + 
+					x * data->real_screen_width / SCR_WIDTH * cameraRight + 
+					y * data->real_screen_height /SCR_HEIGHT * (- cameraUp) + 
+					i * data->sample_distance * screen_pixel_ray_dir[x * SCR_HEIGHT + y]; //this is the position of the sample in world cordinates
+				float intensity = octree->searchPointGetIntensity(modelAux * glm::vec4(auxPos, 1.0f));
+
+				//blend colours
+				glm::vec4 blend_color = glm::vec4(0.0f);
+
+				if (intensity > 25.0f)
+					blend_color = glm::vec4(0.0f, 0.5f, 1.0f, 0.5f);
+				if (intensity > 50.0f)
+					blend_color = glm::vec4(0.0f, 0.0f, 1.0f, 0.5f);
+				if (intensity > 100.0f)
+					blend_color = glm::vec4(0.0f, 1.0f, 0.0f, 0.5f);
+				if (intensity > 150.0f)
+					blend_color = glm::vec4(1.0f, 0.0f, 0.0f, 0.5f);
+				if (intensity > 200.0f)
+					blend_color = glm::vec4(1.0f, 1.0f, 0.0f, 0.5f);
+				if (intensity > 250.0f)
+					blend_color = glm::vec4(1.0f, 1.0f, 1.0f, 0.5f);
+
+				fragmentColor = glm::vec4(
+					fragmentColor.r * (1 - blend_color.a) + blend_color.r * blend_color.a,
+					fragmentColor.g * (1 - blend_color.a) + blend_color.g * blend_color.a,
+					fragmentColor.b * (1 - blend_color.a) + blend_color.b * blend_color.a,
+					1.0f
+				);
+
+			}*/
+			glm::vec3 auxPos = data->top_left_corner +
+				x * data->real_screen_width / SCR_WIDTH * cameraRight +
+				y * data->real_screen_height / SCR_HEIGHT * (-cameraUp) +
+				data->samples_per_ray/2 * data->sample_distance * screen_pixel_ray_dir[x * SCR_HEIGHT + y]; //this is the position of the sample in world cordinates
+			float intensity = octree->searchPointGetIntensity(modelAux * glm::vec4(auxPos, 1.0f));
+
+			//blend colours
+			glm::vec4 blend_color = glm::vec4(0.0f);
+
+			if (intensity > 25.0f)
+				blend_color = glm::vec4(0.0f, 0.5f, 1.0f, 0.5f);
+			if (intensity > 50.0f)
+				blend_color = glm::vec4(0.0f, 0.0f, 1.0f, 0.5f);
+			if (intensity > 100.0f)
+				blend_color = glm::vec4(0.0f, 1.0f, 0.0f, 0.5f);
+			if (intensity > 150.0f)
+				blend_color = glm::vec4(1.0f, 0.0f, 0.0f, 0.5f);
+			if (intensity > 200.0f)
+				blend_color = glm::vec4(1.0f, 1.0f, 0.0f, 0.5f);
+			if (intensity > 250.0f)
+				blend_color = glm::vec4(1.0f, 1.0f, 1.0f, 0.5f);
+
+			fragmentColor = glm::vec4(
+				fragmentColor.r * (1 - blend_color.a) + blend_color.r * blend_color.a,
+				fragmentColor.g * (1 - blend_color.a) + blend_color.g * blend_color.a,
+				fragmentColor.b * (1 - blend_color.a) + blend_color.b * blend_color.a,
+				1.0f
+			);
+
+			screen_pixel_color[x * SCR_HEIGHT + y] = fragmentColor;
 
 		}
 	}
+
+	for (int x = 0; x < SCR_WIDTH; x++) {
+		for (int y = 0; y < SCR_HEIGHT; y++) {
+			int index = (x * SCR_HEIGHT + y) * 7;
+			/*x*/pixels[index + 0] = 2 * (((float)x) / SCR_WIDTH) - 1;
+			/*y*/pixels[index + 1] = 2 * (((float)y) / SCR_HEIGHT) - 1;
+			/*z*/pixels[index + 2] = 0.0f;
+			/*r*/pixels[index + 3] = screen_pixel_color[x * SCR_HEIGHT + y].r;
+			/*g*/pixels[index + 4] = screen_pixel_color[x * SCR_HEIGHT + y].g;
+			/*b*/pixels[index + 5] = screen_pixel_color[x * SCR_HEIGHT + y].b;
+			/*a*/pixels[index + 6] = screen_pixel_color[x * SCR_HEIGHT + y].a;
+		}
+	}
+
+
+}
+
+void update_colors(Octree* octree, float* pixels, glm::vec3* screen_pixel_ray_dir, glm::vec4* screen_pixel_color, Data* data, int layer) {
+
+	//matrices
+	glm::mat4 modelAux = glm::mat4(1.0f);
+	modelAux = glm::translate(modelAux, glm::vec3(0.5f, 0.5f, 0.5f));
+
+	for (int x = 0; x < SCR_WIDTH; x++) {
+		for (int y = 0; y < SCR_HEIGHT; y++) {
+			glm::vec4 fragmentColor = BACKGROUND_COLOUR;
+
+			glm::vec3 auxPos = data->top_left_corner +
+				x * data->real_screen_width / SCR_WIDTH * cameraRight +
+				y * data->real_screen_height / SCR_HEIGHT * (-cameraUp) +
+				(layer % data->samples_per_ray) * data->sample_distance * screen_pixel_ray_dir[x * SCR_HEIGHT + y]; //this is the position of the sample in world cordinates
+			float intensity = octree->searchPointGetIntensity(modelAux * glm::vec4(auxPos, 1.0f));
+
+			//blend colours
+			glm::vec4 blend_color = glm::vec4(0.0f);
+
+			if (intensity > 25.0f)
+				blend_color = glm::vec4(0.0f, 0.5f, 1.0f, 0.5f);
+			if (intensity > 50.0f)
+				blend_color = glm::vec4(0.0f, 0.0f, 1.0f, 0.5f);
+			if (intensity > 100.0f)
+				blend_color = glm::vec4(0.0f, 1.0f, 0.0f, 0.5f);
+			if (intensity > 150.0f)
+				blend_color = glm::vec4(1.0f, 0.0f, 0.0f, 0.5f);
+			if (intensity > 200.0f)
+				blend_color = glm::vec4(1.0f, 1.0f, 0.0f, 0.5f);
+			if (intensity > 250.0f)
+				blend_color = glm::vec4(1.0f, 1.0f, 1.0f, 0.5f);
+
+			fragmentColor = glm::vec4(
+				fragmentColor.r * (1 - blend_color.a) + blend_color.r * blend_color.a,
+				fragmentColor.g * (1 - blend_color.a) + blend_color.g * blend_color.a,
+				fragmentColor.b * (1 - blend_color.a) + blend_color.b * blend_color.a,
+				1.0f
+			);
+
+			screen_pixel_color[x * SCR_HEIGHT + y] = fragmentColor;
+
+		}
+	}
+
+	for (int x = 0; x < SCR_WIDTH; x++) {
+		for (int y = 0; y < SCR_HEIGHT; y++) {
+			int index = (x * SCR_HEIGHT + y) * 7;
+			/*x*/pixels[index + 0] = 2 * (((float)x) / SCR_WIDTH) - 1;
+			/*y*/pixels[index + 1] = 2 * (((float)y) / SCR_HEIGHT) - 1;
+			/*z*/pixels[index + 2] = 0.0f;
+			/*r*/pixels[index + 3] = screen_pixel_color[x * SCR_HEIGHT + y].r;
+			/*g*/pixels[index + 4] = screen_pixel_color[x * SCR_HEIGHT + y].g;
+			/*b*/pixels[index + 5] = screen_pixel_color[x * SCR_HEIGHT + y].b;
+			/*a*/pixels[index + 6] = screen_pixel_color[x * SCR_HEIGHT + y].a;
+		}
+	}
+
+
+
 }

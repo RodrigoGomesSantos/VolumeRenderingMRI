@@ -4,7 +4,8 @@
 Node::Node(int max_depth, int hdim, NiftiFile* nf) {
 
 	this->depth = 0;
-	this->value = 0.0f;
+	this->high_value = 0.0f;
+	this->low_value = 0.0f;
 	this->branches = nullptr;
 	this->lower = glm::vec3(0.0f, 0.0f, 0.0f);
 	this->upper = glm::vec3(1.0f, 1.0f, 1.0f);
@@ -20,7 +21,8 @@ Node::Node(int max_depth, int hdim, NiftiFile* nf) {
 Node::Node(Node* parent, int depth, int max_depth, glm::vec3 lower, glm::vec3 upper) {
 	this->parent = parent;
 	this->depth = depth;
-	this->value = 0.0f;
+	this->high_value = 0.0f;
+	this->low_value = 0.0f;
 	this->branches = nullptr;
 	this->lower = lower;
 	this->upper = upper;
@@ -67,35 +69,60 @@ bool comp(float a, float b)
 
 void Node::updateNodesValue(int hdim, NiftiFile* nf) {
 
-
-	if (branches != nullptr) {
+	if (!isLeaf()) {
 
 		for (int i = 0; i < 8; i++) {
 			branches[i][0].updateNodesValue(hdim, nf);
 		}
 
-
 		for (int i = 0; i < 8; i++) {
-			if (value < branches[i][0].value) {
-				value = branches[i][0].value;
+			if (high_value < branches[i][0].high_value) {
+				high_value = branches[i][0].high_value;
+			}
+			if (low_value > branches[i][0].low_value) {
+				low_value = branches[i][0].low_value;
 			}
 		}
 	}
 
-	else {//carefull this value is not true to the data set
-
+	else {// Is Leaf //carefull this value is not true to the data set
 		glm::mat4 scaleMatrix = glm::mat4(1.0);
 		scaleMatrix = glm::scale(scaleMatrix, glm::vec3(hdim, hdim, hdim));
-		glm::vec3 res = glm::vec4(lower, 1) * scaleMatrix;
+		glm::vec3 res = scaleMatrix * glm::vec4(lower, 1);
 
-		if (nf->transformVector3Position(res) < nf->header.dim[1] * nf->header.dim[2] * nf->header.dim[3]) { //position is in dataset range
-			value = nf->volume[nf->transformVector3Position(res)];
+		//center the dataset on the volume
+		if (
+			res.x >= (hdim / 2.0f) - (nf->header.dim[1] / 2.0f) && res.x < (hdim / 2.0f) + (nf->header.dim[1] / 2.0f) &&
+			res.y >= (hdim / 2.0f) - (nf->header.dim[2] / 2.0f) && res.y < (hdim / 2.0f) + (nf->header.dim[2] / 2.0f) &&
+			res.z >= (hdim / 2.0f) - (nf->header.dim[3] / 2.0f) && res.z < (hdim / 2.0f) + (nf->header.dim[3] / 2.0f))
+		{
+
+			res = glm::vec3(
+				(int) (res.x + (nf->header.dim[1] / 2.0f) - hdim / 2.0f),
+				(int) (res.y + (nf->header.dim[2] / 2.0f) - hdim / 2.0f),
+				(int) (res.z + (nf->header.dim[3] / 2.0f) - hdim / 2.0f));
+
+			high_value = nf->volume[nf->transformVector3Position(res) ];
+			low_value = high_value;
 		}
 		else { //position is out of dataset range
-			value = 0.0f;
+			high_value = 0.0f;
+			low_value = high_value;
 		}
-	}
+		/*
+		if (res.x >= 0.0f && res.x < nf->header.dim[1] &&
+			res.y >= 0.0f && res.y < nf->header.dim[2] &&
+			res.z >= 0.0f && res.z < nf->header.dim[3])
+		{
+			high_value = nf->volume[nf->transformVector3Position(res)];
+			low_value = high_value;
+		}
+		else { //position is out of dataset range
+			high_value = 0.0f;
+			low_value = high_value;
+		}*/
 
+	}
 }
 
 /*
@@ -110,17 +137,30 @@ bool Node::isInside(glm::vec3 p) {
 		p.z < upper.z);
 }
 
+bool Node::isLeaf() {
+	return branches == nullptr;
+}
+
 float Node::searchPointGetIntensity(glm::vec3 point) {
 
 	float res = 0.0f;
+
 	if (isInside(point)) {
-		for (int i = 0; i < 8; i++) {
-			res = this->branches[0][i].searchPointGetIntensity(point);
+		if (high_value == low_value) { // early stop
+			res = high_value;
+		}
+		else {
+			for (int i = 0; i < 8; i++) {
+				float aux = this->branches[i][0].searchPointGetIntensity(point);
+				if (aux > res)
+					res = aux;
+			}
 		}
 	}
 	return res;
 }
 
 Node::~Node() {
-	free(branches);
+	if (!isLeaf())
+		free(branches);
 }

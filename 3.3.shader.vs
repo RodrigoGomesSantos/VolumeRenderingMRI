@@ -10,7 +10,7 @@ uniform mat4 view;
 uniform mat4 projection;
 void main()
 {
-
+				 //screen   //camera  //world  //local
    gl_Position = projection * view * model * vec4(aPos, 1.0);
    ourColor = aColor;
 }
